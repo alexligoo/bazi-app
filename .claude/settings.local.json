@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter build:*)",
+      "Bash(lsof:*)",
+      "Bash(open http://localhost:8080)",
+      "Bash(dart run:*)",
+      "WebSearch",
+      "WebFetch(domain:www.hko.gov.hk)",
+      "WebFetch(domain:www.nongli.info)",
+      "WebFetch(domain:site.douban.com)",
+      "WebFetch(domain:wannianrili.bmcx.com)",
+      "WebFetch(domain:www.buyiju.com)",
+      "WebFetch(domain:en.wikipedia.org)",
+      "WebFetch(domain:www.timeanddate.com)",
+      "Bash(pip3 install:*)",
+      "Bash(python3:*)",
+      "WebFetch(domain:wannianli.tianqi.com)",
+      "WebFetch(domain:www.xingzuo360.cn)",
+      "Bash(xcode-select:*)",
+      "Bash(xcodebuild:*)",
+      "Bash(flutter pub get:*)",
+      "Bash(gh auth:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
