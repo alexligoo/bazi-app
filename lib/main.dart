@@ -670,7 +670,17 @@ class BaZiDB {
     }
   }
 
+  static void updateNotes(String id, Map<String, dynamic> notes) {
+    final record = _box.get(id);
+    if (record != null) {
+      final m = Map<String, dynamic>.from(record as Map);
+      m['notes'] = notes;
+      _box.put(id, m);
+    }
+  }
+
   static void delete(String id) => _box.delete(id);
+  static void clearAll() => _box.clear();
 }
 
 // ============================================================
@@ -752,19 +762,29 @@ class _InputPageState extends State<InputPage> {
                 _card([
                   Text('智能识别', style: TextStyle(fontSize: 13, color: kTextColor.withValues(alpha: 0.55), fontWeight: FontWeight.w600)),
                   const SizedBox(height: 10),
-                  TextField(
-                    controller: _smartCtrl,
-                    onChanged: _onSmartInput,
-                    style: TextStyle(fontSize: 16, color: kTextColor),
-                    decoration: InputDecoration(
-                      hintText: '张三 1990年1月1日 12时 男',
-                      hintStyle: TextStyle(fontSize: 15, color: kTextColor.withValues(alpha: 0.3)),
-                      filled: true,
-                      fillColor: kTextColor.withValues(alpha: 0.05),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  Row(children: [
+                    Expanded(child: TextField(
+                      controller: _smartCtrl,
+                      style: TextStyle(fontSize: 16, color: kTextColor),
+                      decoration: InputDecoration(
+                        hintText: '张三 1990年1月1日 12时 男',
+                        hintStyle: TextStyle(fontSize: 15, color: kTextColor.withValues(alpha: 0.3)),
+                        filled: true,
+                        fillColor: kTextColor.withValues(alpha: 0.05),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      ),
+                    )),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () => _onSmartInput(_smartCtrl.text),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        decoration: BoxDecoration(color: kTextColor, borderRadius: BorderRadius.circular(12)),
+                        child: Text('识别', style: TextStyle(fontSize: 15, color: kBgColor, fontWeight: FontWeight.w600)),
+                      ),
                     ),
-                  ),
+                  ]),
                   if (_parseHint != null) ...[
                     const SizedBox(height: 8),
                     Text(_parseHint!, style: TextStyle(fontSize: 12, color: kTextColor.withValues(alpha: 0.55))),
@@ -1137,6 +1157,28 @@ class _HistoryPageState extends State<HistoryPage> {
 
   List<Map<String, dynamic>> get _records => _showFavOnly ? BaZiDB.getFavorites() : BaZiDB.getAll();
 
+  void _confirmClearAll(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: kBgColor,
+        title: const Text('清除所有记录', style: TextStyle(color: kTextColor)),
+        content: const Text('确定要删除所有历史记录吗？此操作不可恢复。', style: TextStyle(color: kTextColor)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+            onPressed: () {
+              BaZiDB.clearAll();
+              setState(() {});
+              Navigator.pop(ctx);
+            },
+            child: const Text('清除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final records = _records;
@@ -1158,6 +1200,15 @@ class _HistoryPageState extends State<HistoryPage> {
               ),
               const SizedBox(width: 16),
               Text('历史记录', style: TextStyle(fontSize: 20, color: kTextColor, fontWeight: FontWeight.w700)),
+              const Spacer(),
+              GestureDetector(
+                onTap: () => _confirmClearAll(context),
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: kTextColor.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12)),
+                  child: Icon(Icons.delete_sweep_rounded, color: kTextColor, size: 20),
+                ),
+              ),
             ]),
           ),
           // Tab 切换
@@ -1231,7 +1282,8 @@ class _HistoryPageState extends State<HistoryPage> {
           final dt = DateTime(year, month, day, hour);
           final result = calculate(dt, isMale, name: name);
           final comment = record['comment'] as String? ?? '';
-          Navigator.push(context, CupertinoPageRoute(builder: (_) => ChartPage(result: result, recordId: id, initialComment: comment)));
+          final notes = record['notes'] != null ? Map<String, dynamic>.from(record['notes'] as Map) : <String, dynamic>{};
+          Navigator.push(context, CupertinoPageRoute(builder: (_) => ChartPage(result: result, recordId: id, initialComment: comment, initialNotes: notes)));
         },
         child: Container(
           margin: const EdgeInsets.only(bottom: 10),
@@ -1277,7 +1329,8 @@ class _HistoryPageState extends State<HistoryPage> {
   final BaZiResult result;
   final String? recordId;
   final String? initialComment;
-  const ChartPage({super.key, required this.result, this.recordId, this.initialComment});
+  final Map<String, dynamic>? initialNotes;
+  const ChartPage({super.key, required this.result, this.recordId, this.initialComment, this.initialNotes});
 
   @override
   State<ChartPage> createState() => _ChartPageState();
@@ -1287,12 +1340,14 @@ class _ChartPageState extends State<ChartPage> {
   final GlobalKey _repaintKey = GlobalKey();
   late TextEditingController _commentController;
   bool _isCapturing = false;
+  late Map<String, dynamic> _notes;
 
   @override
   void initState() {
     super.initState();
     _commentController = TextEditingController(text: widget.initialComment ?? '');
     _commentController.addListener(_onCommentChanged);
+    _notes = Map<String, dynamic>.from(widget.initialNotes ?? {});
   }
 
   @override
@@ -1306,6 +1361,47 @@ class _ChartPageState extends State<ChartPage> {
     if (widget.recordId != null) {
       BaZiDB.updateComment(widget.recordId!, _commentController.text);
     }
+  }
+
+  void _saveNotes() {
+    if (widget.recordId != null) {
+      BaZiDB.updateNotes(widget.recordId!, _notes);
+    }
+  }
+
+  void _showNoteDialog(String key, String title, {bool hasScore = false}) {
+    final existing = _notes[key] as Map<String, dynamic>? ?? {};
+    final textCtrl = TextEditingController(text: existing['text'] as String? ?? '');
+    final scoreCtrl = TextEditingController(text: existing['score']?.toString() ?? '');
+    showModalBottomSheet(
+      context: context, isScrollControlled: true, backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: Container(
+          decoration: const BoxDecoration(color: kBgColor, borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(width: 36, height: 4, decoration: BoxDecoration(color: kTextColor.withOpacity(0.2), borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 16),
+            Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: kTextColor)),
+            const SizedBox(height: 16),
+            if (hasScore) ...[
+              TextField(controller: scoreCtrl, keyboardType: TextInputType.number, style: const TextStyle(fontSize: 16, color: kTextColor),
+                decoration: InputDecoration(hintText: '岁数', hintStyle: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.3)), filled: true, fillColor: kTextColor.withOpacity(0.05), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12))),
+              const SizedBox(height: 12),
+            ],
+            TextField(controller: textCtrl, maxLines: 4, style: const TextStyle(fontSize: 16, color: kTextColor),
+              decoration: InputDecoration(hintText: '输入批注...', hintStyle: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.3)), filled: true, fillColor: kTextColor.withOpacity(0.05), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12))),
+            const SizedBox(height: 16),
+            Row(children: [
+              Expanded(child: GestureDetector(onTap: () => Navigator.pop(ctx), child: Container(height: 48, decoration: BoxDecoration(color: kTextColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)), alignment: Alignment.center, child: const Text('取消', style: TextStyle(fontSize: 16, color: kTextColor, fontWeight: FontWeight.w600))))),
+              const SizedBox(width: 12),
+              Expanded(child: GestureDetector(onTap: () { setState(() { _notes[key] = {'text': textCtrl.text, if (hasScore) 'score': scoreCtrl.text}; }); _saveNotes(); Navigator.pop(ctx); }, child: Container(height: 48, decoration: BoxDecoration(color: kTextColor, borderRadius: BorderRadius.circular(12)), alignment: Alignment.center, child: Text('保存', style: TextStyle(fontSize: 16, color: kBgColor, fontWeight: FontWeight.w600))))),
+            ]),
+          ])),
+        ),
+      ),
+    );
   }
 
   Widget _vText(String text, {double size = 16, FontWeight weight = FontWeight.normal, Color color = kTextColor, double height = 1.5}) {
@@ -1382,10 +1478,6 @@ class _ChartPageState extends State<ChartPage> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          // Left: Xiang Ming
-                          _buildSideBox(_buildXiangMingContent()),
-                          const SizedBox(width: 8),
-
                           // Center: Si Zhu Table
                           Expanded(child: _buildSiZhuTable()),
                           const SizedBox(width: 8),
@@ -1403,6 +1495,13 @@ class _ChartPageState extends State<ChartPage> {
 
                     // 4. 批流年
                     _buildPiLiuNianInput(),
+                    const SizedBox(height: 24),
+
+                    // 5. 相命同参（横排）
+                    Center(child: Text(
+                      '相 命 同 参 · 有 错 携 回 再 评',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: kTextColor.withOpacity(0.6), letterSpacing: 2),
+                    )),
                     const SizedBox(height: 40),
                   ],
                 ),
@@ -1534,7 +1633,7 @@ class _ChartPageState extends State<ChartPage> {
         children: [
            // Row 1: Na Yin (5 items) - Outside Table to allow 5 columns vs 4
            Container(
-             height: 35, // Adjust height
+             height: 40,
              decoration: BoxDecoration(border: Border(bottom: borderSide)),
              child: Row(
                children: naYins.map((ny) => Expanded(
@@ -1558,14 +1657,39 @@ class _ChartPageState extends State<ChartPage> {
             padding: const EdgeInsets.symmetric(vertical: 12),
             child: Column(
               children: [
-                _vText('立命', size: 32, weight: FontWeight.w900),
+                GestureDetector(
+                  onTap: _isCapturing ? null : () => _showNoteDialog('mingGong', '立命批注'),
+                  child: _vText('立命', size: 32, weight: FontWeight.w900),
+                ),
+                if ((_notes['mingGong'] as Map<String, dynamic>?)?['text']?.toString().isNotEmpty == true) ...[
+                  const SizedBox(height: 4),
+                  Text((_notes['mingGong'] as Map)['text'], style: TextStyle(fontSize: 15, color: kTextColor.withOpacity(0.5)), textAlign: TextAlign.center),
+                ],
                 const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text('小限', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: kTextColor)),
+                    GestureDetector(
+                      onTap: _isCapturing ? null : () => _showNoteDialog('xiaoXian', '小限批注'),
+                      child: Column(children: [
+                        Text('小限', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: kTextColor)),
+                        if ((_notes['xiaoXian'] as Map<String, dynamic>?)?['text']?.toString().isNotEmpty == true) ...[
+                          const SizedBox(height: 2),
+                          Text((_notes['xiaoXian'] as Map)['text'], style: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.5))),
+                        ],
+                      ]),
+                    ),
                     const SizedBox(width: 40),
-                    Text('大限', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: kTextColor)),
+                    GestureDetector(
+                      onTap: _isCapturing ? null : () => _showNoteDialog('daXian', '大限批注'),
+                      child: Column(children: [
+                        Text('大限', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: kTextColor)),
+                        if ((_notes['daXian'] as Map<String, dynamic>?)?['text']?.toString().isNotEmpty == true) ...[
+                          const SizedBox(height: 2),
+                          Text((_notes['daXian'] as Map)['text'], style: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.5))),
+                        ],
+                      ]),
+                    ),
                   ],
                 ),
               ],
@@ -1579,24 +1703,28 @@ class _ChartPageState extends State<ChartPage> {
   // Helper for inner table
   Widget _buildInnerTable() {
     final r = widget.result;
-    
-    // Hidden Stems (Same as before)
+
     List<String> yearSS = getZhiShiShenList(r.dayGan, r.yearZhiStr);
     List<String> monthSS = getZhiShiShenList(r.dayGan, r.monthZhiStr);
     List<String> daySS = getZhiShiShenList(r.dayGan, r.dayZhiStr);
     List<String> hourSS = getZhiShiShenList(r.dayGan, r.hourZhiStr);
 
-    const tsTiny = TextStyle(fontSize: 12, color: kTextColor);
-    const tsHeader = TextStyle(fontSize: 20, color: kTextColor, fontWeight: FontWeight.bold);
+    String hourGod = getShiShenShort(r.dayGan, r.hourGan);
+    String dayGod = '日元';
+    String monthGod = getShiShenShort(r.dayGan, r.monthGan);
+    String yearGod = getShiShenShort(r.dayGan, r.yearGan);
+
+    const tsTiny = TextStyle(fontSize: 14, color: kTextColor);
+    const tsHeader = TextStyle(fontSize: 22, color: kTextColor, fontWeight: FontWeight.bold);
 
     Widget buildCol(String gan, String zhi, List<String> hGods) {
        return Column(
          mainAxisSize: MainAxisSize.min,
          children: [
            const SizedBox(height: 8),
-           Text(gan, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: kTextColor)),
+           Text(gan, style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w900, color: kTextColor)),
            const SizedBox(height: 8),
-           Text(zhi, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: kTextColor)),
+           Text(zhi, style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w900, color: kTextColor)),
            const SizedBox(height: 8),
            Column(children: hGods.map((e) => Text(e, style: tsTiny)).toList()),
            const SizedBox(height: 8),
@@ -1617,21 +1745,28 @@ class _ChartPageState extends State<ChartPage> {
         ),
         columnWidths: const {0: FlexColumnWidth(), 1: FlexColumnWidth(), 2: FlexColumnWidth(), 3: FlexColumnWidth()},
         children: [
-          // Row 1: Star Xin Shi Star (Previously Row 2)
+          // Row 1: ★信士★
           TableRow(children: const [
-             Center(child: Padding(padding: EdgeInsets.all(8), child: Text('★', style: TextStyle(fontSize: 20, color: kTextColor)))),
-             Center(child: Padding(padding: EdgeInsets.all(8), child: Text('信', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: kTextColor)))),
-             Center(child: Padding(padding: EdgeInsets.all(8), child: Text('士', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: kTextColor)))),
-             Center(child: Padding(padding: EdgeInsets.all(8), child: Text('★', style: TextStyle(fontSize: 20, color: kTextColor)))),
+             Center(child: Padding(padding: EdgeInsets.all(8), child: Text('★', style: TextStyle(fontSize: 22, color: kTextColor)))),
+             Center(child: Padding(padding: EdgeInsets.all(8), child: Text('信', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: kTextColor)))),
+             Center(child: Padding(padding: EdgeInsets.all(8), child: Text('士', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: kTextColor)))),
+             Center(child: Padding(padding: EdgeInsets.all(8), child: Text('★', style: TextStyle(fontSize: 22, color: kTextColor)))),
           ]),
-          // Row 2: Headers
+          // Row 2: 时日月年
           TableRow(children: [
              Center(child: Padding(padding: const EdgeInsets.all(8), child: Text('时', style: tsHeader))),
              Center(child: Padding(padding: const EdgeInsets.all(8), child: Text('日', style: tsHeader))),
              Center(child: Padding(padding: const EdgeInsets.all(8), child: Text('月', style: tsHeader))),
              Center(child: Padding(padding: const EdgeInsets.all(8), child: Text('年', style: tsHeader))),
           ]),
-          // Row 3: Pillars
+          // Row 3: 主星（十神）
+          TableRow(children: [
+             Center(child: Padding(padding: const EdgeInsets.all(6), child: Text(hourGod, style: TextStyle(fontSize: 16, color: kTextColor.withOpacity(0.7), fontWeight: FontWeight.w600)))),
+             Center(child: Padding(padding: const EdgeInsets.all(6), child: Text(dayGod, style: TextStyle(fontSize: 16, color: kTextColor.withOpacity(0.7), fontWeight: FontWeight.w600)))),
+             Center(child: Padding(padding: const EdgeInsets.all(6), child: Text(monthGod, style: TextStyle(fontSize: 16, color: kTextColor.withOpacity(0.7), fontWeight: FontWeight.w600)))),
+             Center(child: Padding(padding: const EdgeInsets.all(6), child: Text(yearGod, style: TextStyle(fontSize: 16, color: kTextColor.withOpacity(0.7), fontWeight: FontWeight.w600)))),
+          ]),
+          // Row 4: Pillars
           TableRow(children: [
              buildCol(r.hourGanStr, r.hourZhiStr, hourSS),
              buildCol(r.dayGanStr, r.dayZhiStr, daySS),
@@ -1645,38 +1780,53 @@ class _ChartPageState extends State<ChartPage> {
   Widget _buildDaYunSection() {
     final list = widget.result.daYunList;
     final dayGan = widget.result.dayGan;
-    const tenGods = ['比肩', '劫财', '食神', '伤官', '偏财', '正财', '七杀', '正官', '偏印', '正印'];
+    final borderSide = BorderSide(color: kTextColor, width: 1);
 
-    return Column(
-      children: [
-        const Text('大运', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: kTextColor)),
-        const SizedBox(height: 8),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: list.map((item) {
-              final gan = item[0];
-              final zhi = item[1];
-              String gz = '${tianGan[gan]}${diZhi[zhi]}';
-              
-              int godIdx = (gan - dayGan + 10) % 10;
-              String god = tenGods[godIdx];
-              
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Column(
-                  children: [
-                    Text(god, style: const TextStyle(fontSize: 12, color: kTextColor)),
-                    const SizedBox(height: 4),
-                    Text(gz, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.red)),
-                  ],
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-      ],
+    bool hasAnyNote = false;
+    for (int i = 0; i < list.length; i++) {
+      final n = _notes['daYun_$i'] as Map<String, dynamic>?;
+      if (n != null && ((n['score']?.toString().isNotEmpty == true) || (n['text']?.toString().isNotEmpty == true))) { hasAnyNote = true; break; }
+    }
+
+    return Container(
+      decoration: BoxDecoration(border: Border.all(color: kTextColor, width: 1)),
+      child: Column(children: [
+        Container(padding: const EdgeInsets.symmetric(vertical: 8), decoration: BoxDecoration(border: Border(bottom: borderSide)),
+          child: const Center(child: Text('大  运', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: kTextColor)))),
+        // Ten Gods row
+        Container(decoration: BoxDecoration(border: Border(bottom: borderSide)),
+          child: Row(children: List.generate(list.length, (i) {
+            String god = getShiShenShort(dayGan, list[i][0]);
+            return Expanded(child: Container(decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null, padding: const EdgeInsets.symmetric(vertical: 6), alignment: Alignment.center, child: Text(god, style: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.6)))));
+          }))),
+        // Tian Gan row
+        Container(decoration: BoxDecoration(border: Border(bottom: borderSide)),
+          child: Row(children: List.generate(list.length, (i) {
+            return Expanded(child: Container(decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null, padding: const EdgeInsets.symmetric(vertical: 8), alignment: Alignment.center, child: Text(tianGan[list[i][0]], style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.red))));
+          }))),
+        // Di Zhi row
+        Container(decoration: hasAnyNote ? BoxDecoration(border: Border(bottom: borderSide)) : null,
+          child: Row(children: List.generate(list.length, (i) {
+            final zhi = list[i][1];
+            return Expanded(child: GestureDetector(
+              onTap: _isCapturing ? null : () => _showNoteDialog('daYun_$i', '${tianGan[list[i][0]]}${diZhi[zhi]} 大运批注', hasScore: true),
+              child: Container(decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null, padding: const EdgeInsets.symmetric(vertical: 8), alignment: Alignment.center, child: Text(diZhi[zhi], style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.red)))));
+          }))),
+        // Notes row
+        if (hasAnyNote)
+          Row(children: List.generate(list.length, (i) {
+            final n = _notes['daYun_$i'] as Map<String, dynamic>? ?? {};
+            final score = n['score']?.toString() ?? '';
+            final text = n['text']?.toString() ?? '';
+            return Expanded(child: GestureDetector(
+              onTap: _isCapturing ? null : () => _showNoteDialog('daYun_$i', '${tianGan[list[i][0]]}${diZhi[list[i][1]]} 大运批注', hasScore: true),
+              child: Container(decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null, padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2), alignment: Alignment.center,
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  if (score.isNotEmpty) Text(score, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.red)),
+                  if (text.isNotEmpty) Text(text, style: TextStyle(fontSize: 12, color: kTextColor.withOpacity(0.5)), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+                ]))));
+          })),
+      ]),
     );
   }
 
@@ -1685,37 +1835,92 @@ class _ChartPageState extends State<ChartPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        const Text('批流年', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: kTextColor)),
+        const Text('批流年', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: kTextColor)),
         const SizedBox(height: 12),
-        _isCapturing
-          ? (comment.isNotEmpty
-              ? Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: kTextColor.withOpacity(0.5)),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(comment, style: const TextStyle(fontSize: 16, color: kTextColor)),
-                )
-              : const SizedBox.shrink())
-          : Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                border: Border.all(color: kTextColor.withOpacity(0.5)),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: TextField(
-                controller: _commentController,
-                maxLines: 6,
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  hintText: '在此输入流年批语...',
-                ),
-                style: const TextStyle(fontSize: 16, color: kTextColor),
-              ),
+        GestureDetector(
+          onTap: _isCapturing ? null : _showPiLiuNianDialog,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              border: Border.all(color: kTextColor.withOpacity(0.5)),
+              borderRadius: BorderRadius.circular(4),
             ),
+            child: Text(
+              comment.isNotEmpty ? comment : '点击输入流年批语...',
+              style: TextStyle(fontSize: 18, color: comment.isNotEmpty ? kTextColor : kTextColor.withOpacity(0.3)),
+            ),
+          ),
+        ),
       ],
+    );
+  }
+
+  void _showPiLiuNianDialog() {
+    final ctrl = TextEditingController(text: _commentController.text);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: Container(
+          decoration: const BoxDecoration(
+            color: kBgColor,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: SafeArea(
+            top: false,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(width: 36, height: 4, decoration: BoxDecoration(color: kTextColor.withOpacity(0.2), borderRadius: BorderRadius.circular(2))),
+              const SizedBox(height: 16),
+              const Text('批流年', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: kTextColor)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: ctrl,
+                maxLines: 8,
+                autofocus: true,
+                style: const TextStyle(fontSize: 18, color: kTextColor),
+                decoration: InputDecoration(
+                  hintText: '输入流年批语...',
+                  hintStyle: TextStyle(fontSize: 16, color: kTextColor.withOpacity(0.3)),
+                  filled: true,
+                  fillColor: kTextColor.withOpacity(0.05),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(child: GestureDetector(
+                  onTap: () => Navigator.pop(ctx),
+                  child: Container(
+                    height: 48,
+                    decoration: BoxDecoration(color: kTextColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                    alignment: Alignment.center,
+                    child: const Text('取消', style: TextStyle(fontSize: 16, color: kTextColor, fontWeight: FontWeight.w600)),
+                  ),
+                )),
+                const SizedBox(width: 12),
+                Expanded(child: GestureDetector(
+                  onTap: () {
+                    _commentController.text = ctrl.text;
+                    setState(() {});
+                    Navigator.pop(ctx);
+                  },
+                  child: Container(
+                    height: 48,
+                    decoration: BoxDecoration(color: kTextColor, borderRadius: BorderRadius.circular(12)),
+                    alignment: Alignment.center,
+                    child: Text('保存', style: TextStyle(fontSize: 16, color: kBgColor, fontWeight: FontWeight.w600)),
+                  ),
+                )),
+              ]),
+            ]),
+          ),
+        ),
+      ),
     );
   }
 
