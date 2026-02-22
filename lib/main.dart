@@ -205,9 +205,10 @@ Map<String, dynamic> getDaYun(DateTime birthDt, bool isMale, int yearGanIdx, int
     nextJie = (currentMonthIdx + 1 <= 11) ? getSolarTerm(nianYear, (currentMonthIdx + 1) * 2) : getSolarTerm(nianYear + 1, 0);
   }
 
+  // 计算起运年龄：三天折一年，向下取整（风水大师建议）
   int daysDiff = isForward ? nextJie.difference(birthDt).inDays.abs() : birthDt.difference(prevJie).inDays.abs();
-  int startAge = (daysDiff / 3).round();
-  if (startAge < 1) startAge = 1;
+  int startAge = (daysDiff / 3).floor(); // 向下取整，不使用四舍五入
+  if (startAge < 1) startAge = 1; // 确保起运年龄至少为1岁（虚岁）
 
   List<List<int>> daYunList = [];
   for (int i = 1; i <= 10; i++) {
@@ -2110,10 +2111,9 @@ class _ChartPageState extends State<ChartPage> {
         Container(decoration: BoxDecoration(border: Border(bottom: borderSide)),
           child: Row(children: List.generate(list.length, (i) {
             final ganIdx = list[i][0];
-            final zhiIdx = list[i][1];
-            final age = startAge + i * 10;
+            final stepStartAge = startAge + i * 10; // 本步大运起始年龄
             return Expanded(child: GestureDetector(
-              onTap: _isCapturing ? null : () => _showDaYunNoteDialog(i, true, age),
+              onTap: _isCapturing ? null : () => _showDaYunNoteDialog(i, true, stepStartAge),
               child: Container(
                 decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null,
                 padding: const EdgeInsets.symmetric(vertical: 8),
@@ -2121,7 +2121,7 @@ class _ChartPageState extends State<ChartPage> {
                 child: Text(tianGan[ganIdx], style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: kTextColor)))));
           }))),
 
-        // Tian Gan Notes row (天干批注行)
+        // Tian Gan Notes row (天干批注行 - 默认显示起运年龄)
         Container(decoration: BoxDecoration(border: Border(bottom: borderSide)),
           child: Row(children: List.generate(list.length, (i) {
             final key = 'daYun_${i}_gan';
@@ -2130,8 +2130,11 @@ class _ChartPageState extends State<ChartPage> {
             final text = note['text']?.toString() ?? '';
             final hasNote = year.isNotEmpty || text.isNotEmpty;
 
+            // 计算本步大运起始年龄
+            final stepStartAge = startAge + i * 10;
+
             return Expanded(child: GestureDetector(
-              onTap: _isCapturing ? null : () => _showDaYunNoteDialog(i, true, startAge + i * 10),
+              onTap: _isCapturing ? null : () => _showDaYunNoteDialog(i, true, stepStartAge),
               child: Container(
                 decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null,
                 padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
@@ -2142,49 +2145,20 @@ class _ChartPageState extends State<ChartPage> {
                     if (year.isNotEmpty) Text(year, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kTextColor)),
                     if (text.isNotEmpty) Text(text, style: TextStyle(fontSize: 11, color: kTextColor.withOpacity(0.5)), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
                   ],
-                ) : const SizedBox(height: 32),
+                ) : Text('$stepStartAge', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kTextColor)),
               ),
             ));
           }))),
 
-        // Di Zhi row (可点击)
+        // Di Zhi row (地支行)
         Container(decoration: BoxDecoration(border: Border(bottom: borderSide)),
           child: Row(children: List.generate(list.length, (i) {
             final zhiIdx = list[i][1];
-            final age = startAge + i * 10 + 5;
-            return Expanded(child: GestureDetector(
-              onTap: _isCapturing ? null : () => _showDaYunNoteDialog(i, false, age),
-              child: Container(
-                decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null,
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                alignment: Alignment.center,
-                child: Text(diZhi[zhiIdx], style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: kTextColor)))));
-          }))),
-
-        // Di Zhi Notes row (地支批注行)
-        Container(decoration: BoxDecoration(border: Border(bottom: borderSide)),
-          child: Row(children: List.generate(list.length, (i) {
-            final key = 'daYun_${i}_zhi';
-            final note = _notes[key] as Map<String, dynamic>? ?? {};
-            final year = note['year']?.toString() ?? '';
-            final text = note['text']?.toString() ?? '';
-            final hasNote = year.isNotEmpty || text.isNotEmpty;
-
-            return Expanded(child: GestureDetector(
-              onTap: _isCapturing ? null : () => _showDaYunNoteDialog(i, false, startAge + i * 10 + 5),
-              child: Container(
-                decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null,
-                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-                alignment: Alignment.center,
-                child: hasNote ? Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (year.isNotEmpty) Text(year, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kTextColor)),
-                    if (text.isNotEmpty) Text(text, style: TextStyle(fontSize: 11, color: kTextColor.withOpacity(0.5)), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
-                  ],
-                ) : const SizedBox(height: 32),
-              ),
-            ));
+            return Expanded(child: Container(
+              decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              alignment: Alignment.center,
+              child: Text(diZhi[zhiIdx], style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: kTextColor))));
           }))),
 
         // Sub Stars row (地支藏干十神)
