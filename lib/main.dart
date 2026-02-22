@@ -741,13 +741,27 @@ class InputPage extends StatefulWidget {
 }
 
 class _InputPageState extends State<InputPage> {
-  int _year = 1990, _month = 1, _day = 1, _hour = 12, _minute = 0;
+  int _year = 1990, _month = 1, _day = 1, _hour = 0, _minute = 0;
   bool _isMale = true;
   bool _isLunarMode = true;
   String _name = '';
   final _smartCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
   String? _parseHint;
+
+  void _resetToDefaults() {
+    setState(() {
+      _year = 1990;
+      _month = 1;
+      _day = 1;
+      _hour = 0;
+      _minute = 0;
+      _isMale = true;
+      _isLunarMode = true;
+      _name = '';
+      _nameCtrl.clear();
+    });
+  }
 
   String get _dateDisplayStr {
     if (_isLunarMode) {
@@ -785,6 +799,18 @@ class _InputPageState extends State<InputPage> {
             child: Row(children: [
               Text('八字排盘', style: TextStyle(fontSize: 24, color: kTextColor, fontWeight: FontWeight.w700)),
               const Spacer(),
+              GestureDetector(
+                onTap: _resetToDefaults,
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: kTextColor.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.refresh_rounded, color: kTextColor, size: 22),
+                ),
+              ),
+              const SizedBox(width: 12),
               GestureDetector(
                 onTap: () => Navigator.push(context, CupertinoPageRoute(builder: (_) => const HistoryPage())),
                 child: Container(
@@ -1411,6 +1437,12 @@ class _ChartPageState extends State<ChartPage> {
     _commentController.addListener(_onCommentChanged);
     _notes = Map<String, dynamic>.from(widget.initialNotes ?? {});
     _audioPath = widget.initialAudioPath;
+
+    // Setup audio player completion listener
+    _audioPlayer.onPlayerComplete.listen((_) {
+      setState(() => _isPlaying = false);
+      _modalSetState?.call(() => _isPlaying = false);
+    });
   }
 
   @override
@@ -2246,11 +2278,16 @@ class _ChartPageState extends State<ChartPage> {
             // Get amplitude for visualization
             try {
               final amplitude = await _audioRecorder.getAmplitude();
+              // Normalize amplitude: current is in dB, typically -160 to 0
+              // Convert to 0.0-1.0 range with better sensitivity
+              final dbValue = amplitude.current;
+              final normalizedAmplitude = ((dbValue + 50) / 50).clamp(0.0, 1.0);
+
               setState(() {
-                _audioAmplitude = amplitude.current.clamp(0.0, 1.0);
+                _audioAmplitude = normalizedAmplitude;
               });
               _modalSetState?.call(() {
-                _audioAmplitude = amplitude.current.clamp(0.0, 1.0);
+                _audioAmplitude = normalizedAmplitude;
               });
             } catch (e) {
               // Amplitude not supported on all platforms
@@ -2283,14 +2320,7 @@ class _ChartPageState extends State<ChartPage> {
     try {
       await _audioPlayer.play(DeviceFileSource(_audioPath!));
       setState(() => _isPlaying = true);
-
-      _audioPlayer.onPlayerComplete.listen((_) {
-        setState(() => _isPlaying = false);
-      });
-
-      _audioPlayer.onPositionChanged.listen((position) {
-        setState(() => _playPosition = position);
-      });
+      _modalSetState?.call(() => _isPlaying = true);
     } catch (e) {
       print('Error playing recording: $e');
     }
@@ -2302,6 +2332,9 @@ class _ChartPageState extends State<ChartPage> {
       setState(() {
         _isPlaying = false;
         _playPosition = Duration.zero;
+      });
+      _modalSetState?.call(() {
+        _isPlaying = false;
       });
     } catch (e) {
       print('Error stopping playback: $e');
@@ -2382,11 +2415,43 @@ class _ChartPageState extends State<ChartPage> {
                   ),
                   child: Column(
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          // Play/Stop button (left)
-                          if (_audioPath != null) ...[
+                      if (_isRecording) ...[
+                        // Recording in progress - show stop button
+                        GestureDetector(
+                          onTap: () async {
+                            await _stopRecording();
+                            setModalState(() {});
+                            setState(() {});
+                          },
+                          child: Container(
+                            width: 70,
+                            height: 70,
+                            decoration: BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.stop,
+                              color: kBgColor,
+                              size: 35,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          '录音中 ${_recordDuration.inMinutes}:${(_recordDuration.inSeconds % 60).toString().padLeft(2, '0')}',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.red,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ] else if (_audioPath != null && File(_audioPath!).existsSync()) ...[
+                        // Has recording - show play and delete buttons
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            // Play button
                             GestureDetector(
                               onTap: () async {
                                 if (_isPlaying) {
@@ -2412,37 +2477,7 @@ class _ChartPageState extends State<ChartPage> {
                               ),
                             ),
                             const SizedBox(width: 20),
-                          ],
-
-                          // Record/Stop button (center)
-                          GestureDetector(
-                            onTap: () async {
-                              if (_isRecording) {
-                                await _stopRecording();
-                              } else {
-                                await _startRecording();
-                              }
-                              setModalState(() {});
-                              setState(() {});
-                            },
-                            child: Container(
-                              width: 70,
-                              height: 70,
-                              decoration: BoxDecoration(
-                                color: _isRecording ? Colors.red : kTextColor,
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                _isRecording ? Icons.stop : Icons.mic,
-                                color: kBgColor,
-                                size: 35,
-                              ),
-                            ),
-                          ),
-
-                          // Delete button (right)
-                          if (_audioPath != null) ...[
-                            const SizedBox(width: 20),
+                            // Delete button
                             GestureDetector(
                               onTap: () {
                                 _deleteRecording();
@@ -2464,42 +2499,41 @@ class _ChartPageState extends State<ChartPage> {
                               ),
                             ),
                           ],
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Recording duration and status
-                      if (_isRecording) ...[
-                        // Audio waveform visualization
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: List.generate(20, (index) {
-                            final height = 4.0 + (_audioAmplitude * 30 * (index % 3 == 0 ? 1.0 : index % 2 == 0 ? 0.7 : 0.5));
-                            return Container(
-                              width: 3,
-                              height: height,
-                              margin: const EdgeInsets.symmetric(horizontal: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.red.withOpacity(0.7),
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            );
-                          }),
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '录音中 ${_recordDuration.inMinutes}:${(_recordDuration.inSeconds % 60).toString().padLeft(2, '0')}',
-                          style: TextStyle(fontSize: 16, color: Colors.red, fontWeight: FontWeight.bold),
-                        ),
-                      ] else if (_audioPath != null) ...[
+                        const SizedBox(height: 12),
                         Text(
                           '已录制 ${_recordDuration.inMinutes}:${(_recordDuration.inSeconds % 60).toString().padLeft(2, '0')}',
                           style: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.6)),
                         ),
                       ] else ...[
+                        // No recording - show record button
+                        GestureDetector(
+                          onTap: () async {
+                            await _startRecording();
+                            setModalState(() {});
+                            setState(() {});
+                          },
+                          child: Container(
+                            width: 70,
+                            height: 70,
+                            decoration: BoxDecoration(
+                              color: kTextColor,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.mic,
+                              color: kBgColor,
+                              size: 35,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
                         Text(
-                          '点击麦克风开始录音',
-                          style: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.6)),
+                          '点击开始录音',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: kTextColor.withOpacity(0.6),
+                          ),
                         ),
                       ],
                     ],
