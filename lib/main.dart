@@ -1514,13 +1514,13 @@ class _ChartPageState extends State<ChartPage> {
     final ganStr = tianGan[ganIdx];
     final zhiStr = diZhi[zhiIdx];
 
-    // 计算当前位置在整个序列中的索引（天干地支交替）
-    int currentIndex = daYunIndex * 2 + (isGan ? 0 : 1);
-    int totalCount = list.length * 2;
+    // 只在天干之间导航，不包括地支
+    int currentIndex = daYunIndex;
+    int totalCount = list.length;
 
     void showDialog(int index) {
-      int dyIdx = index ~/ 2;
-      bool isG = index % 2 == 0;
+      int dyIdx = index;
+      bool isG = true; // 只处理天干
 
       if (dyIdx < 0 || dyIdx >= list.length) return;
 
@@ -1528,12 +1528,14 @@ class _ChartPageState extends State<ChartPage> {
       final zIdx = list[dyIdx][1];
       final gStr = tianGan[gIdx];
       final zStr = diZhi[zIdx];
-      final age = widget.result.startAge + dyIdx * 10 + (isG ? 0 : 5);
-      final ageRange = '${age}-${age + 4}岁';
+      final age = widget.result.startAge + dyIdx * 10;
+      final ageRange = '${age}岁起';
 
-      final key = 'daYun_${dyIdx}_${isG ? "gan" : "zhi"}';
+      final key = 'daYun_${dyIdx}_gan';
       final existing = _notes[key] as Map<String, dynamic>? ?? {};
-      final yearCtrl = TextEditingController(text: existing['year']?.toString() ?? '');
+      // 如果没有保存过年份，使用默认的起运年龄
+      final defaultYear = age.toString();
+      final yearCtrl = TextEditingController(text: existing['year']?.toString() ?? defaultYear);
       final textCtrl = TextEditingController(text: existing['text']?.toString() ?? '');
 
       // 自动保存
@@ -1547,11 +1549,9 @@ class _ChartPageState extends State<ChartPage> {
       yearCtrl.addListener(autoSave);
       textCtrl.addListener(autoSave);
 
-      final title = '$gStr$zStr大运 · ${isG ? "天干$gStr" : "地支$zStr"}（$ageRange）';
-      final starLabel = isG ? '主星' : '副星';
-      final starValue = isG
-        ? getShiShen(widget.result.dayGan, gIdx)
-        : getZhiShiShenList(widget.result.dayGan, zStr).join('/');
+      final title = '$gStr$zStr大运 · 天干$gStr（$ageRange）';
+      final starLabel = '主星';
+      final starValue = getShiShen(widget.result.dayGan, gIdx);
 
       showModalBottomSheet(
         context: context,
