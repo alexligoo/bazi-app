@@ -1514,13 +1514,12 @@ class _ChartPageState extends State<ChartPage> {
     final ganStr = tianGan[ganIdx];
     final zhiStr = diZhi[zhiIdx];
 
-    // 只在天干之间导航，不包括地支
+    // 在大运步数之间导航
     int currentIndex = daYunIndex;
     int totalCount = list.length;
 
     void showDialog(int index) {
       int dyIdx = index;
-      bool isG = true; // 只处理天干
 
       if (dyIdx < 0 || dyIdx >= list.length) return;
 
@@ -1528,14 +1527,12 @@ class _ChartPageState extends State<ChartPage> {
       final zIdx = list[dyIdx][1];
       final gStr = tianGan[gIdx];
       final zStr = diZhi[zIdx];
-      final age = widget.result.startAge + dyIdx * 10;
-      final ageRange = '${age}岁起';
 
-      final key = 'daYun_${dyIdx}_gan';
+      // 统一的批注key，不区分天干地支
+      final key = 'daYun_${dyIdx}';
       final existing = _notes[key] as Map<String, dynamic>? ?? {};
-      // 如果没有保存过年份，使用默认的起运年龄
-      final defaultYear = age.toString();
-      final yearCtrl = TextEditingController(text: existing['year']?.toString() ?? defaultYear);
+      // 年份不预填充，默认为空
+      final yearCtrl = TextEditingController(text: existing['year']?.toString() ?? '');
       final textCtrl = TextEditingController(text: existing['text']?.toString() ?? '');
 
       // 自动保存
@@ -1549,9 +1546,12 @@ class _ChartPageState extends State<ChartPage> {
       yearCtrl.addListener(autoSave);
       textCtrl.addListener(autoSave);
 
-      final title = '$gStr$zStr大运 · 天干$gStr（$ageRange）';
-      final starLabel = '主星';
-      final starValue = getShiShen(widget.result.dayGan, gIdx);
+      // 标题：只显示干支大运
+      final title = '$gStr$zStr大运';
+      // 主星（天干十神）+ 副星（地支藏干十神）
+      final mainStar = getShiShen(widget.result.dayGan, gIdx);
+      final subStars = getZhiShiShenList(widget.result.dayGan, zStr).join('/');
+      final starInfo = '主星：$mainStar  副星：$subStars';
 
       showModalBottomSheet(
         context: context,
@@ -1571,7 +1571,7 @@ class _ChartPageState extends State<ChartPage> {
                   const SizedBox(height: 16),
                   Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: kTextColor)),
                   const SizedBox(height: 8),
-                  Text('$starLabel：$starValue', style: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.6))),
+                  Text(starInfo, style: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.6))),
                   const SizedBox(height: 16),
 
                   // 年份输入框
@@ -2121,16 +2121,16 @@ class _ChartPageState extends State<ChartPage> {
                 child: Text(tianGan[ganIdx], style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: kTextColor)))));
           }))),
 
-        // Tian Gan Notes row (天干批注行 - 默认显示起运年龄)
+        // Tian Gan Notes row (批注行 - 默认空白)
         Container(decoration: BoxDecoration(border: Border(bottom: borderSide)),
           child: Row(children: List.generate(list.length, (i) {
-            final key = 'daYun_${i}_gan';
+            // 使用统一的key，不区分天干地支
+            final key = 'daYun_${i}';
             final note = _notes[key] as Map<String, dynamic>? ?? {};
             final year = note['year']?.toString() ?? '';
             final text = note['text']?.toString() ?? '';
             final hasNote = year.isNotEmpty || text.isNotEmpty;
 
-            // 计算本步大运起始年龄
             final stepStartAge = startAge + i * 10;
 
             return Expanded(child: GestureDetector(
@@ -2145,20 +2145,23 @@ class _ChartPageState extends State<ChartPage> {
                     if (year.isNotEmpty) Text(year, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kTextColor)),
                     if (text.isNotEmpty) Text(text, style: TextStyle(fontSize: 11, color: kTextColor.withOpacity(0.5)), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
                   ],
-                ) : Text('$stepStartAge', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kTextColor)),
+                ) : const SizedBox(height: 32), // 默认空白，不显示年龄
               ),
             ));
           }))),
 
-        // Di Zhi row (地支行)
+        // Di Zhi row (地支行 - 可点击)
         Container(decoration: BoxDecoration(border: Border(bottom: borderSide)),
           child: Row(children: List.generate(list.length, (i) {
             final zhiIdx = list[i][1];
-            return Expanded(child: Container(
-              decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              alignment: Alignment.center,
-              child: Text(diZhi[zhiIdx], style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: kTextColor))));
+            final stepStartAge = startAge + i * 10;
+            return Expanded(child: GestureDetector(
+              onTap: _isCapturing ? null : () => _showDaYunNoteDialog(i, false, stepStartAge),
+              child: Container(
+                decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                alignment: Alignment.center,
+                child: Text(diZhi[zhiIdx], style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: kTextColor)))));
           }))),
 
         // Sub Stars row (地支藏干十神)
