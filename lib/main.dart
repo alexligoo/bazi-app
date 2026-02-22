@@ -2591,45 +2591,146 @@ class _ChartPageState extends State<ChartPage> {
       final hasAudio = _audioPath != null && File(_audioPath!).existsSync();
 
       if (hasAudio) {
-        // Show dialog to choose what to share
+        // Show bottom sheet to choose what to share
         if (!context.mounted) return;
-        showDialog(
+        showModalBottomSheet(
           context: context,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: kBgColor,
-            title: const Text('选择分享内容', style: TextStyle(color: kTextColor)),
-            content: const Text(
-              '检测到录音文件。由于微信等应用限制，图片和音频需要分开分享。',
-              style: TextStyle(color: kTextColor, fontSize: 14),
+          backgroundColor: Colors.transparent,
+          builder: (ctx) => Container(
+            decoration: const BoxDecoration(
+              color: kBgColor,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
             ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  // Share image only
-                  Share.shareXFiles(
-                    [XFile.fromData(bytes, name: '$name.png', mimeType: 'image/png')],
-                    text: '$name 八字排盘',
-                  );
-                },
-                child: const Text('分享图片', style: TextStyle(color: kTextColor)),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 拖动条
+                  Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: kTextColor.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // 标题
+                  const Text(
+                    '分享八字排盘',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: kTextColor,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  // 分享图片按钮
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      Share.shareXFiles(
+                        [XFile.fromData(bytes, name: '$name.png', mimeType: 'image/png')],
+                        text: '$name 八字排盘',
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 20),
+                      decoration: BoxDecoration(
+                        color: kTextColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.image_rounded, size: 32, color: kTextColor),
+                          const SizedBox(height: 8),
+                          const Text(
+                            '分享图片',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: kTextColor,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '保存为图片并分享',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: kTextColor.withOpacity(0.5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // 分享语音按钮
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      Share.shareXFiles(
+                        [XFile(_audioPath!, name: '$name.m4a', mimeType: 'audio/m4a')],
+                        text: '$name 批语录音',
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 20),
+                      decoration: BoxDecoration(
+                        color: kTextColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.mic_rounded, size: 32, color: kTextColor),
+                          const SizedBox(height: 8),
+                          const Text(
+                            '分享语音',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: kTextColor,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '保存为语音并分享',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: kTextColor.withOpacity(0.5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // 取消按钮
+                  GestureDetector(
+                    onTap: () => Navigator.pop(ctx),
+                    child: Container(
+                      height: 48,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: kTextColor, width: 1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      alignment: Alignment.center,
+                      child: const Text(
+                        '取消',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: kTextColor,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  // Share audio only
-                  Share.shareXFiles(
-                    [XFile(_audioPath!, name: '$name.m4a', mimeType: 'audio/m4a')],
-                    text: '$name 批语录音',
-                  );
-                },
-                child: const Text('分享录音', style: TextStyle(color: kTextColor)),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text('取消', style: TextStyle(color: kTextColor.withOpacity(0.5))),
-              ),
-            ],
+            ),
           ),
         );
       } else {
