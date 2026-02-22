@@ -8,6 +8,11 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:typed_data';
+import 'package:record/record.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
+import 'dart:async';
 
 // ============================================================
 // 八字排盘 App — 传统大师纸风格（全面重构版）
@@ -87,7 +92,7 @@ String getShiShen(int dayGanIdx, int otherGanIdx) {
 /// 十神简称（大运用）
 String getShiShenShort(int dayGanIdx, int otherGanIdx) {
   const map = {'比肩':'比','劫财':'劫','食神':'食','伤官':'伤',
-    '偏财':'财','正财':'才','七杀':'杀','正官':'官','偏印':'枭','正印':'印'};
+    '偏财':'财','正财':'才','七杀':'杀','正官':'官','偏印':'偏印','正印':'印'};
   return map[getShiShen(dayGanIdx, otherGanIdx)] ?? '';
 }
 
@@ -632,12 +637,14 @@ class BaZiDB {
   static String save({
     required String name, required int year, required int month,
     required int day, required int hour, required bool isMale,
+    String? audioPath,
   }) {
     final id = _uuid.v4();
     _box.put(id, {
       'id': id, 'name': name, 'year': year, 'month': month,
       'day': day, 'hour': hour, 'isMale': isMale,
       'isFavorite': false, 'createdAt': DateTime.now().toIso8601String(),
+      if (audioPath != null) 'audioPath': audioPath,
     });
     return id;
   }
@@ -679,8 +686,49 @@ class BaZiDB {
     }
   }
 
-  static void delete(String id) => _box.delete(id);
-  static void clearAll() => _box.clear();
+  static void updateAudioPath(String id, String? audioPath) {
+    final record = _box.get(id);
+    if (record != null) {
+      final m = Map<String, dynamic>.from(record as Map);
+      if (audioPath != null) {
+        m['audioPath'] = audioPath;
+      } else {
+        m.remove('audioPath');
+      }
+      _box.put(id, m);
+    }
+  }
+
+  static void delete(String id) {
+    // Delete audio file if exists
+    final record = _box.get(id);
+    if (record != null) {
+      final m = Map<String, dynamic>.from(record as Map);
+      final audioPath = m['audioPath'] as String?;
+      if (audioPath != null) {
+        try {
+          final file = File(audioPath);
+          if (file.existsSync()) {
+            file.deleteSync();
+          }
+        } catch (e) {
+          print('Error deleting audio file: $e');
+        }
+      }
+    }
+    _box.delete(id);
+  }
+
+  static void clearAll() {
+    // Only delete non-favorite records
+    final allRecords = getAll();
+    for (var record in allRecords) {
+      final isFavorite = record['isFavorite'] as bool? ?? false;
+      if (!isFavorite) {
+        delete(record['id'] as String);
+      }
+    }
+  }
 }
 
 // ============================================================
@@ -758,39 +806,39 @@ class _InputPageState extends State<InputPage> {
                   padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 const SizedBox(height: 8),
-                // 智能输入
-                _card([
-                  Text('智能识别', style: TextStyle(fontSize: 13, color: kTextColor.withValues(alpha: 0.55), fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 10),
-                  Row(children: [
-                    Expanded(child: TextField(
-                      controller: _smartCtrl,
-                      style: TextStyle(fontSize: 16, color: kTextColor),
-                      decoration: InputDecoration(
-                        hintText: '张三 1990年1月1日 12时 男',
-                        hintStyle: TextStyle(fontSize: 15, color: kTextColor.withValues(alpha: 0.3)),
-                        filled: true,
-                        fillColor: kTextColor.withValues(alpha: 0.05),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      ),
-                    )),
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: () => _onSmartInput(_smartCtrl.text),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                        decoration: BoxDecoration(color: kTextColor, borderRadius: BorderRadius.circular(12)),
-                        child: Text('识别', style: TextStyle(fontSize: 15, color: kBgColor, fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                  ]),
-                  if (_parseHint != null) ...[
-                    const SizedBox(height: 8),
-                    Text(_parseHint!, style: TextStyle(fontSize: 12, color: kTextColor.withValues(alpha: 0.55))),
-                  ],
-                ]),
-                const SizedBox(height: 16),
+                // 智能输入 - 已屏蔽
+                // _card([
+                //   Text('智能识别', style: TextStyle(fontSize: 13, color: kTextColor.withValues(alpha: 0.55), fontWeight: FontWeight.w600)),
+                //   const SizedBox(height: 10),
+                //   Row(children: [
+                //     Expanded(child: TextField(
+                //       controller: _smartCtrl,
+                //       style: TextStyle(fontSize: 16, color: kTextColor),
+                //       decoration: InputDecoration(
+                //         hintText: '张三 1990年1月1日 12时 男',
+                //         hintStyle: TextStyle(fontSize: 15, color: kTextColor.withValues(alpha: 0.3)),
+                //         filled: true,
+                //         fillColor: kTextColor.withValues(alpha: 0.05),
+                //         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                //         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                //       ),
+                //     )),
+                //     const SizedBox(width: 8),
+                //     GestureDetector(
+                //       onTap: () => _onSmartInput(_smartCtrl.text),
+                //       child: Container(
+                //         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                //         decoration: BoxDecoration(color: kTextColor, borderRadius: BorderRadius.circular(12)),
+                //         child: Text('识别', style: TextStyle(fontSize: 15, color: kBgColor, fontWeight: FontWeight.w600)),
+                //       ),
+                //     ),
+                //   ]),
+                //   if (_parseHint != null) ...[
+                //     const SizedBox(height: 8),
+                //     Text(_parseHint!, style: TextStyle(fontSize: 12, color: kTextColor.withValues(alpha: 0.55))),
+                //   ],
+                // ]),
+                // const SizedBox(height: 16),
                 // 姓名
                 _card([
                   Text('姓名', style: TextStyle(fontSize: 13, color: kTextColor.withValues(alpha: 0.55), fontWeight: FontWeight.w600)),
@@ -1162,8 +1210,8 @@ class _HistoryPageState extends State<HistoryPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: kBgColor,
-        title: const Text('清除所有记录', style: TextStyle(color: kTextColor)),
-        content: const Text('确定要删除所有历史记录吗？此操作不可恢复。', style: TextStyle(color: kTextColor)),
+        title: const Text('清除历史记录', style: TextStyle(color: kTextColor)),
+        content: const Text('确定要删除所有非收藏的历史记录吗？收藏的记录将被保留。此操作不可恢复。', style: TextStyle(color: kTextColor)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
           TextButton(
@@ -1283,7 +1331,8 @@ class _HistoryPageState extends State<HistoryPage> {
           final result = calculate(dt, isMale, name: name);
           final comment = record['comment'] as String? ?? '';
           final notes = record['notes'] != null ? Map<String, dynamic>.from(record['notes'] as Map) : <String, dynamic>{};
-          Navigator.push(context, CupertinoPageRoute(builder: (_) => ChartPage(result: result, recordId: id, initialComment: comment, initialNotes: notes)));
+          final audioPath = record['audioPath'] as String?;
+          Navigator.push(context, CupertinoPageRoute(builder: (_) => ChartPage(result: result, recordId: id, initialComment: comment, initialNotes: notes, initialAudioPath: audioPath)));
         },
         child: Container(
           margin: const EdgeInsets.only(bottom: 10),
@@ -1330,7 +1379,8 @@ class _HistoryPageState extends State<HistoryPage> {
   final String? recordId;
   final String? initialComment;
   final Map<String, dynamic>? initialNotes;
-  const ChartPage({super.key, required this.result, this.recordId, this.initialComment, this.initialNotes});
+  final String? initialAudioPath;
+  const ChartPage({super.key, required this.result, this.recordId, this.initialComment, this.initialNotes, this.initialAudioPath});
 
   @override
   State<ChartPage> createState() => _ChartPageState();
@@ -1342,18 +1392,38 @@ class _ChartPageState extends State<ChartPage> {
   bool _isCapturing = false;
   late Map<String, dynamic> _notes;
 
+  // Recording related
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  bool _isRecording = false;
+  bool _isPlaying = false;
+  String? _audioPath;
+  Duration _recordDuration = Duration.zero;
+  Duration _playPosition = Duration.zero;
+  Timer? _recordTimer;
+  double _audioAmplitude = 0.0;
+  Function(void Function())? _modalSetState;
+
   @override
   void initState() {
     super.initState();
     _commentController = TextEditingController(text: widget.initialComment ?? '');
     _commentController.addListener(_onCommentChanged);
     _notes = Map<String, dynamic>.from(widget.initialNotes ?? {});
+    _audioPath = widget.initialAudioPath;
   }
 
   @override
   void dispose() {
     _commentController.removeListener(_onCommentChanged);
     _commentController.dispose();
+    _audioRecorder.dispose();
+    _audioPlayer.dispose();
+    _recordTimer?.cancel();
+    // Save audio path before disposing
+    if (widget.recordId != null && _audioPath != null) {
+      BaZiDB.updateAudioPath(widget.recordId!, _audioPath);
+    }
     super.dispose();
   }
 
@@ -1402,6 +1472,209 @@ class _ChartPageState extends State<ChartPage> {
         ),
       ),
     );
+  }
+
+  void _showDaYunNoteDialog(int daYunIndex, bool isGan, int startAge) {
+    final list = widget.result.daYunList;
+    final ganIdx = list[daYunIndex][0];
+    final zhiIdx = list[daYunIndex][1];
+    final ganStr = tianGan[ganIdx];
+    final zhiStr = diZhi[zhiIdx];
+
+    // 计算当前位置在整个序列中的索引（天干地支交替）
+    int currentIndex = daYunIndex * 2 + (isGan ? 0 : 1);
+    int totalCount = list.length * 2;
+
+    void showDialog(int index) {
+      int dyIdx = index ~/ 2;
+      bool isG = index % 2 == 0;
+
+      if (dyIdx < 0 || dyIdx >= list.length) return;
+
+      final gIdx = list[dyIdx][0];
+      final zIdx = list[dyIdx][1];
+      final gStr = tianGan[gIdx];
+      final zStr = diZhi[zIdx];
+      final age = widget.result.startAge + dyIdx * 10 + (isG ? 0 : 5);
+      final ageRange = '${age}-${age + 4}岁';
+
+      final key = 'daYun_${dyIdx}_${isG ? "gan" : "zhi"}';
+      final existing = _notes[key] as Map<String, dynamic>? ?? {};
+      final yearCtrl = TextEditingController(text: existing['year']?.toString() ?? '');
+      final textCtrl = TextEditingController(text: existing['text']?.toString() ?? '');
+
+      // 自动保存
+      void autoSave() {
+        setState(() {
+          _notes[key] = {'year': yearCtrl.text, 'text': textCtrl.text};
+        });
+        _saveNotes();
+      }
+
+      yearCtrl.addListener(autoSave);
+      textCtrl.addListener(autoSave);
+
+      final title = '$gStr$zStr大运 · ${isG ? "天干$gStr" : "地支$zStr"}（$ageRange）';
+      final starLabel = isG ? '主星' : '副星';
+      final starValue = isG
+        ? getShiShen(widget.result.dayGan, gIdx)
+        : getZhiShiShenList(widget.result.dayGan, zStr).join('/');
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            decoration: const BoxDecoration(color: kBgColor, borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(width: 36, height: 4, decoration: BoxDecoration(color: kTextColor.withOpacity(0.2), borderRadius: BorderRadius.circular(2))),
+                  const SizedBox(height: 16),
+                  Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: kTextColor)),
+                  const SizedBox(height: 8),
+                  Text('$starLabel：$starValue', style: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.6))),
+                  const SizedBox(height: 16),
+
+                  // 年份输入框
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('年份', style: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.7), fontWeight: FontWeight.w600)),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: yearCtrl,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(fontSize: 16, color: kTextColor),
+                    decoration: InputDecoration(
+                      hintText: '输入年份...',
+                      hintStyle: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.3)),
+                      filled: true,
+                      fillColor: kTextColor.withOpacity(0.05),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // 批注输入框
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('批注', style: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.7), fontWeight: FontWeight.w600)),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: textCtrl,
+                    maxLines: 4,
+                    style: const TextStyle(fontSize: 16, color: kTextColor),
+                    decoration: InputDecoration(
+                      hintText: '输入批注...',
+                      hintStyle: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.3)),
+                      filled: true,
+                      fillColor: kTextColor.withOpacity(0.05),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // 导航按钮
+                  Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: index > 0 ? () {
+                            yearCtrl.removeListener(autoSave);
+                            textCtrl.removeListener(autoSave);
+                            Navigator.pop(ctx);
+                            showDialog(index - 1);
+                          } : null,
+                          child: Container(
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: index > 0 ? kTextColor.withOpacity(0.1) : kTextColor.withOpacity(0.05),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              '← 上个字',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: index > 0 ? kTextColor : kTextColor.withOpacity(0.3),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            yearCtrl.removeListener(autoSave);
+                            textCtrl.removeListener(autoSave);
+                            Navigator.pop(ctx);
+                          },
+                          child: Container(
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: kTextColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            alignment: Alignment.center,
+                            child: const Text('取消', style: TextStyle(fontSize: 16, color: kTextColor, fontWeight: FontWeight.w600)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: index < totalCount - 1 ? () {
+                            yearCtrl.removeListener(autoSave);
+                            textCtrl.removeListener(autoSave);
+                            Navigator.pop(ctx);
+                            showDialog(index + 1);
+                          } : null,
+                          child: Container(
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: index < totalCount - 1 ? kTextColor : kTextColor.withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              '下个字 →',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: index < totalCount - 1 ? kBgColor : kTextColor.withOpacity(0.5),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ).whenComplete(() {
+        yearCtrl.removeListener(autoSave);
+        textCtrl.removeListener(autoSave);
+        yearCtrl.dispose();
+        textCtrl.dispose();
+      });
+    }
+
+    showDialog(currentIndex);
   }
 
   Widget _vText(String text, {double size = 16, FontWeight weight = FontWeight.normal, Color color = kTextColor, double height = 1.5}) {
@@ -1781,57 +2054,128 @@ class _ChartPageState extends State<ChartPage> {
     final list = widget.result.daYunList;
     final dayGan = widget.result.dayGan;
     final borderSide = BorderSide(color: kTextColor, width: 1);
-
-    bool hasAnyNote = false;
-    for (int i = 0; i < list.length; i++) {
-      final n = _notes['daYun_$i'] as Map<String, dynamic>?;
-      if (n != null && ((n['score']?.toString().isNotEmpty == true) || (n['text']?.toString().isNotEmpty == true))) { hasAnyNote = true; break; }
-    }
+    final startAge = widget.result.startAge;
 
     return Container(
       decoration: BoxDecoration(border: Border.all(color: kTextColor, width: 1)),
       child: Column(children: [
+        // Title
         Container(padding: const EdgeInsets.symmetric(vertical: 8), decoration: BoxDecoration(border: Border(bottom: borderSide)),
           child: const Center(child: Text('大  运', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: kTextColor)))),
-        // Ten Gods row
+
+        // Main Stars row (天干十神)
         Container(decoration: BoxDecoration(border: Border(bottom: borderSide)),
           child: Row(children: List.generate(list.length, (i) {
             String god = getShiShenShort(dayGan, list[i][0]);
-            return Expanded(child: Container(decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null, padding: const EdgeInsets.symmetric(vertical: 6), alignment: Alignment.center, child: Text(god, style: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.6)))));
+            return Expanded(child: Container(
+              decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null,
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              alignment: Alignment.center,
+              child: Text(god, style: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.6)))));
           }))),
-        // Tian Gan row
+
+        // Tian Gan row (可点击)
         Container(decoration: BoxDecoration(border: Border(bottom: borderSide)),
           child: Row(children: List.generate(list.length, (i) {
-            return Expanded(child: Container(decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null, padding: const EdgeInsets.symmetric(vertical: 8), alignment: Alignment.center, child: Text(tianGan[list[i][0]], style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.red))));
+            final ganIdx = list[i][0];
+            final zhiIdx = list[i][1];
+            final age = startAge + i * 10;
+            return Expanded(child: GestureDetector(
+              onTap: _isCapturing ? null : () => _showDaYunNoteDialog(i, true, age),
+              child: Container(
+                decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                alignment: Alignment.center,
+                child: Text(tianGan[ganIdx], style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: kTextColor)))));
           }))),
-        // Di Zhi row
-        Container(decoration: hasAnyNote ? BoxDecoration(border: Border(bottom: borderSide)) : null,
+
+        // Tian Gan Notes row (天干批注行)
+        Container(decoration: BoxDecoration(border: Border(bottom: borderSide)),
           child: Row(children: List.generate(list.length, (i) {
-            final zhi = list[i][1];
+            final key = 'daYun_${i}_gan';
+            final note = _notes[key] as Map<String, dynamic>? ?? {};
+            final year = note['year']?.toString() ?? '';
+            final text = note['text']?.toString() ?? '';
+            final hasNote = year.isNotEmpty || text.isNotEmpty;
+
             return Expanded(child: GestureDetector(
-              onTap: _isCapturing ? null : () => _showNoteDialog('daYun_$i', '${tianGan[list[i][0]]}${diZhi[zhi]} 大运批注', hasScore: true),
-              child: Container(decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null, padding: const EdgeInsets.symmetric(vertical: 8), alignment: Alignment.center, child: Text(diZhi[zhi], style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.red)))));
+              onTap: _isCapturing ? null : () => _showDaYunNoteDialog(i, true, startAge + i * 10),
+              child: Container(
+                decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null,
+                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+                alignment: Alignment.center,
+                child: hasNote ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (year.isNotEmpty) Text(year, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kTextColor)),
+                    if (text.isNotEmpty) Text(text, style: TextStyle(fontSize: 11, color: kTextColor.withOpacity(0.5)), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ],
+                ) : const SizedBox(height: 32),
+              ),
+            ));
           }))),
-        // Notes row
-        if (hasAnyNote)
-          Row(children: List.generate(list.length, (i) {
-            final n = _notes['daYun_$i'] as Map<String, dynamic>? ?? {};
-            final score = n['score']?.toString() ?? '';
-            final text = n['text']?.toString() ?? '';
+
+        // Di Zhi row (可点击)
+        Container(decoration: BoxDecoration(border: Border(bottom: borderSide)),
+          child: Row(children: List.generate(list.length, (i) {
+            final zhiIdx = list[i][1];
+            final age = startAge + i * 10 + 5;
             return Expanded(child: GestureDetector(
-              onTap: _isCapturing ? null : () => _showNoteDialog('daYun_$i', '${tianGan[list[i][0]]}${diZhi[list[i][1]]} 大运批注', hasScore: true),
-              child: Container(decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null, padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2), alignment: Alignment.center,
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  if (score.isNotEmpty) Text(score, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.red)),
-                  if (text.isNotEmpty) Text(text, style: TextStyle(fontSize: 12, color: kTextColor.withOpacity(0.5)), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
-                ]))));
-          })),
+              onTap: _isCapturing ? null : () => _showDaYunNoteDialog(i, false, age),
+              child: Container(
+                decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                alignment: Alignment.center,
+                child: Text(diZhi[zhiIdx], style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: kTextColor)))));
+          }))),
+
+        // Di Zhi Notes row (地支批注行)
+        Container(decoration: BoxDecoration(border: Border(bottom: borderSide)),
+          child: Row(children: List.generate(list.length, (i) {
+            final key = 'daYun_${i}_zhi';
+            final note = _notes[key] as Map<String, dynamic>? ?? {};
+            final year = note['year']?.toString() ?? '';
+            final text = note['text']?.toString() ?? '';
+            final hasNote = year.isNotEmpty || text.isNotEmpty;
+
+            return Expanded(child: GestureDetector(
+              onTap: _isCapturing ? null : () => _showDaYunNoteDialog(i, false, startAge + i * 10 + 5),
+              child: Container(
+                decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null,
+                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+                alignment: Alignment.center,
+                child: hasNote ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (year.isNotEmpty) Text(year, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kTextColor)),
+                    if (text.isNotEmpty) Text(text, style: TextStyle(fontSize: 11, color: kTextColor.withOpacity(0.5)), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ],
+                ) : const SizedBox(height: 32),
+              ),
+            ));
+          }))),
+
+        // Sub Stars row (地支藏干十神)
+        Container(
+          child: Row(children: List.generate(list.length, (i) {
+            final zhiIdx = list[i][1];
+            final zhiStr = diZhi[zhiIdx];
+            final subStars = getZhiShiShenList(dayGan, zhiStr);
+            final subStarsText = subStars.join('/');
+            return Expanded(child: Container(
+              decoration: i < list.length - 1 ? BoxDecoration(border: Border(right: borderSide)) : null,
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+              alignment: Alignment.center,
+              child: Text(subStarsText, style: TextStyle(fontSize: 12, color: kTextColor.withOpacity(0.5)), textAlign: TextAlign.center)));
+          }))),
       ]),
     );
   }
 
   Widget _buildPiLiuNianInput() {
     final comment = _commentController.text;
+    final hasAudio = _audioPath != null && File(_audioPath!).existsSync();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -1846,14 +2190,144 @@ class _ChartPageState extends State<ChartPage> {
               border: Border.all(color: kTextColor.withOpacity(0.5)),
               borderRadius: BorderRadius.circular(4),
             ),
-            child: Text(
-              comment.isNotEmpty ? comment : '点击输入流年批语...',
-              style: TextStyle(fontSize: 18, color: comment.isNotEmpty ? kTextColor : kTextColor.withOpacity(0.3)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  comment.isNotEmpty ? comment : '点击输入流年批语...',
+                  style: TextStyle(fontSize: 18, color: comment.isNotEmpty ? kTextColor : kTextColor.withOpacity(0.3)),
+                ),
+                if (hasAudio && _recordDuration.inSeconds > 0) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(Icons.mic, size: 16, color: kTextColor.withOpacity(0.5)),
+                      const SizedBox(width: 4),
+                      Text(
+                        '录音 ${_recordDuration.inMinutes}:${(_recordDuration.inSeconds % 60).toString().padLeft(2, '0')}',
+                        style: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.5)),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
             ),
           ),
         ),
       ],
     );
+  }
+
+  // Recording methods
+  Future<void> _startRecording() async {
+    try {
+      if (await _audioRecorder.hasPermission()) {
+        final directory = await getApplicationDocumentsDirectory();
+        final path = '${directory.path}/recording_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+        await _audioRecorder.start(const RecordConfig(), path: path);
+        setState(() {
+          _isRecording = true;
+          _audioPath = path;
+          _recordDuration = Duration.zero;
+        });
+        _modalSetState?.call(() {});
+
+        // Start timer to track recording duration
+        _recordTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) async {
+          if (_isRecording) {
+            setState(() {
+              _recordDuration = Duration(milliseconds: timer.tick * 100);
+            });
+            _modalSetState?.call(() {
+              _recordDuration = Duration(milliseconds: timer.tick * 100);
+            });
+
+            // Get amplitude for visualization
+            try {
+              final amplitude = await _audioRecorder.getAmplitude();
+              setState(() {
+                _audioAmplitude = amplitude.current.clamp(0.0, 1.0);
+              });
+              _modalSetState?.call(() {
+                _audioAmplitude = amplitude.current.clamp(0.0, 1.0);
+              });
+            } catch (e) {
+              // Amplitude not supported on all platforms
+            }
+          }
+        });
+      }
+    } catch (e) {
+      print('Error starting recording: $e');
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    try {
+      _recordTimer?.cancel();
+      final path = await _audioRecorder.stop();
+      setState(() {
+        _isRecording = false;
+        _audioAmplitude = 0.0;
+        if (path != null) _audioPath = path;
+      });
+      _modalSetState?.call(() {});
+    } catch (e) {
+      print('Error stopping recording: $e');
+    }
+  }
+
+  Future<void> _playRecording() async {
+    if (_audioPath == null) return;
+    try {
+      await _audioPlayer.play(DeviceFileSource(_audioPath!));
+      setState(() => _isPlaying = true);
+
+      _audioPlayer.onPlayerComplete.listen((_) {
+        setState(() => _isPlaying = false);
+      });
+
+      _audioPlayer.onPositionChanged.listen((position) {
+        setState(() => _playPosition = position);
+      });
+    } catch (e) {
+      print('Error playing recording: $e');
+    }
+  }
+
+  Future<void> _stopPlaying() async {
+    try {
+      await _audioPlayer.stop();
+      setState(() {
+        _isPlaying = false;
+        _playPosition = Duration.zero;
+      });
+    } catch (e) {
+      print('Error stopping playback: $e');
+    }
+  }
+
+  void _deleteRecording() {
+    if (_audioPath != null) {
+      try {
+        final file = File(_audioPath!);
+        if (file.existsSync()) {
+          file.deleteSync();
+        }
+      } catch (e) {
+        print('Error deleting recording: $e');
+      }
+    }
+    // Update database to remove audio path
+    if (widget.recordId != null) {
+      BaZiDB.updateAudioPath(widget.recordId!, null);
+    }
+    setState(() {
+      _audioPath = null;
+      _recordDuration = Duration.zero;
+      _playPosition = Duration.zero;
+    });
   }
 
   void _showPiLiuNianDialog() {
@@ -1862,66 +2336,223 @@ class _ChartPageState extends State<ChartPage> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: Container(
-          decoration: const BoxDecoration(
-            color: kBgColor,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: SafeArea(
-            top: false,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Container(width: 36, height: 4, decoration: BoxDecoration(color: kTextColor.withOpacity(0.2), borderRadius: BorderRadius.circular(2))),
-              const SizedBox(height: 16),
-              const Text('批流年', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: kTextColor)),
-              const SizedBox(height: 16),
-              TextField(
-                controller: ctrl,
-                maxLines: 8,
-                autofocus: true,
-                style: const TextStyle(fontSize: 18, color: kTextColor),
-                decoration: InputDecoration(
-                  hintText: '输入流年批语...',
-                  hintStyle: TextStyle(fontSize: 16, color: kTextColor.withOpacity(0.3)),
-                  filled: true,
-                  fillColor: kTextColor.withOpacity(0.05),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          // Store the setModalState function so timer can use it
+          _modalSetState = setModalState;
+
+          return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: kBgColor,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: SafeArea(
+              top: false,
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Container(width: 36, height: 4, decoration: BoxDecoration(color: kTextColor.withOpacity(0.2), borderRadius: BorderRadius.circular(2))),
+                const SizedBox(height: 16),
+                const Text('批流年', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: kTextColor)),
+                const SizedBox(height: 16),
+
+                // Text input
+                TextField(
+                  controller: ctrl,
+                  maxLines: 6,
+                  style: const TextStyle(fontSize: 18, color: kTextColor),
+                  decoration: InputDecoration(
+                    hintText: '输入流年批语...',
+                    hintStyle: TextStyle(fontSize: 16, color: kTextColor.withOpacity(0.3)),
+                    filled: true,
+                    fillColor: kTextColor.withOpacity(0.05),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              Row(children: [
-                Expanded(child: GestureDetector(
-                  onTap: () => Navigator.pop(ctx),
-                  child: Container(
-                    height: 48,
-                    decoration: BoxDecoration(color: kTextColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                    alignment: Alignment.center,
-                    child: const Text('取消', style: TextStyle(fontSize: 16, color: kTextColor, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 16),
+
+                // Recording section
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: kTextColor.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                )),
-                const SizedBox(width: 12),
-                Expanded(child: GestureDetector(
-                  onTap: () {
-                    _commentController.text = ctrl.text;
-                    setState(() {});
-                    Navigator.pop(ctx);
-                  },
-                  child: Container(
-                    height: 48,
-                    decoration: BoxDecoration(color: kTextColor, borderRadius: BorderRadius.circular(12)),
-                    alignment: Alignment.center,
-                    child: Text('保存', style: TextStyle(fontSize: 16, color: kBgColor, fontWeight: FontWeight.w600)),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Play/Stop button (left)
+                          if (_audioPath != null) ...[
+                            GestureDetector(
+                              onTap: () async {
+                                if (_isPlaying) {
+                                  await _stopPlaying();
+                                } else {
+                                  await _playRecording();
+                                }
+                                setModalState(() {});
+                                setState(() {});
+                              },
+                              child: Container(
+                                width: 60,
+                                height: 60,
+                                decoration: BoxDecoration(
+                                  color: kTextColor.withOpacity(0.8),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  _isPlaying ? Icons.stop : Icons.play_arrow,
+                                  color: kBgColor,
+                                  size: 30,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 20),
+                          ],
+
+                          // Record/Stop button (center)
+                          GestureDetector(
+                            onTap: () async {
+                              if (_isRecording) {
+                                await _stopRecording();
+                              } else {
+                                await _startRecording();
+                              }
+                              setModalState(() {});
+                              setState(() {});
+                            },
+                            child: Container(
+                              width: 70,
+                              height: 70,
+                              decoration: BoxDecoration(
+                                color: _isRecording ? Colors.red : kTextColor,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                _isRecording ? Icons.stop : Icons.mic,
+                                color: kBgColor,
+                                size: 35,
+                              ),
+                            ),
+                          ),
+
+                          // Delete button (right)
+                          if (_audioPath != null) ...[
+                            const SizedBox(width: 20),
+                            GestureDetector(
+                              onTap: () {
+                                _deleteRecording();
+                                setModalState(() {});
+                                setState(() {});
+                              },
+                              child: Container(
+                                width: 60,
+                                height: 60,
+                                decoration: BoxDecoration(
+                                  color: Colors.red.withOpacity(0.2),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.red,
+                                  size: 30,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Recording duration and status
+                      if (_isRecording) ...[
+                        // Audio waveform visualization
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: List.generate(20, (index) {
+                            final height = 4.0 + (_audioAmplitude * 30 * (index % 3 == 0 ? 1.0 : index % 2 == 0 ? 0.7 : 0.5));
+                            return Container(
+                              width: 3,
+                              height: height,
+                              margin: const EdgeInsets.symmetric(horizontal: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withOpacity(0.7),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            );
+                          }),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '录音中 ${_recordDuration.inMinutes}:${(_recordDuration.inSeconds % 60).toString().padLeft(2, '0')}',
+                          style: TextStyle(fontSize: 16, color: Colors.red, fontWeight: FontWeight.bold),
+                        ),
+                      ] else if (_audioPath != null) ...[
+                        Text(
+                          '已录制 ${_recordDuration.inMinutes}:${(_recordDuration.inSeconds % 60).toString().padLeft(2, '0')}',
+                          style: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.6)),
+                        ),
+                      ] else ...[
+                        Text(
+                          '点击麦克风开始录音',
+                          style: TextStyle(fontSize: 14, color: kTextColor.withOpacity(0.6)),
+                        ),
+                      ],
+                    ],
                   ),
-                )),
+                ),
+                const SizedBox(height: 16),
+
+                // Action buttons
+                Row(children: [
+                  Expanded(child: GestureDetector(
+                    onTap: () {
+                      if (_isRecording) _stopRecording();
+                      if (_isPlaying) _stopPlaying();
+                      Navigator.pop(ctx);
+                    },
+                    child: Container(
+                      height: 48,
+                      decoration: BoxDecoration(color: kTextColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                      alignment: Alignment.center,
+                      child: const Text('取消', style: TextStyle(fontSize: 16, color: kTextColor, fontWeight: FontWeight.w600)),
+                    ),
+                  )),
+                  const SizedBox(width: 12),
+                  Expanded(child: GestureDetector(
+                    onTap: () {
+                      if (_isRecording) _stopRecording();
+                      if (_isPlaying) _stopPlaying();
+                      _commentController.text = ctrl.text;
+                      // Save audio path to database
+                      if (widget.recordId != null && _audioPath != null) {
+                        BaZiDB.updateAudioPath(widget.recordId!, _audioPath);
+                      }
+                      setState(() {});
+                      Navigator.pop(ctx);
+                    },
+                    child: Container(
+                      height: 48,
+                      decoration: BoxDecoration(color: kTextColor, borderRadius: BorderRadius.circular(12)),
+                      alignment: Alignment.center,
+                      child: Text('保存', style: TextStyle(fontSize: 16, color: kBgColor, fontWeight: FontWeight.w600)),
+                    ),
+                  )),
+                ]),
               ]),
-            ]),
+            ),
           ),
-        ),
+        );
+        },
       ),
-    );
+    ).whenComplete(() {
+      // Clear the modal setState reference when dialog closes
+      _modalSetState = null;
+    });
   }
 
   Future<Uint8List?> _captureImage() async {
@@ -1944,10 +2575,59 @@ class _ChartPageState extends State<ChartPage> {
       final bytes = await _captureImage();
       if (bytes == null) return;
       final name = widget.result.name.isNotEmpty ? widget.result.name : '八字排盘';
-      await Share.shareXFiles(
-        [XFile.fromData(bytes, name: '$name.png', mimeType: 'image/png')],
-        text: '$name 八字排盘',
-      );
+
+      // Check if there's audio
+      final hasAudio = _audioPath != null && File(_audioPath!).existsSync();
+
+      if (hasAudio) {
+        // Show dialog to choose what to share
+        if (!context.mounted) return;
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: kBgColor,
+            title: const Text('选择分享内容', style: TextStyle(color: kTextColor)),
+            content: const Text(
+              '检测到录音文件。由于微信等应用限制，图片和音频需要分开分享。',
+              style: TextStyle(color: kTextColor, fontSize: 14),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  // Share image only
+                  Share.shareXFiles(
+                    [XFile.fromData(bytes, name: '$name.png', mimeType: 'image/png')],
+                    text: '$name 八字排盘',
+                  );
+                },
+                child: const Text('分享图片', style: TextStyle(color: kTextColor)),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  // Share audio only
+                  Share.shareXFiles(
+                    [XFile(_audioPath!, name: '$name.m4a', mimeType: 'audio/m4a')],
+                    text: '$name 批语录音',
+                  );
+                },
+                child: const Text('分享录音', style: TextStyle(color: kTextColor)),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('取消', style: TextStyle(color: kTextColor.withOpacity(0.5))),
+              ),
+            ],
+          ),
+        );
+      } else {
+        // No audio, just share image
+        await Share.shareXFiles(
+          [XFile.fromData(bytes, name: '$name.png', mimeType: 'image/png')],
+          text: '$name 八字排盘',
+        );
+      }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('分享失败: $e')));

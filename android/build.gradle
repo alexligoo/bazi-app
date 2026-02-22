@@ -24,6 +24,11 @@ subprojects {
                     }
                 }
                 project.android.compileSdkVersion 35
+                // Force Java 17 for all plugins
+                project.android.compileOptions {
+                    sourceCompatibility JavaVersion.VERSION_17
+                    targetCompatibility JavaVersion.VERSION_17
+                }
             }
         }
     }
@@ -31,7 +36,7 @@ subprojects {
 subprojects {
     project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
         kotlinOptions {
-            jvmTarget = "1.8"
+            jvmTarget = "17"
         }
     }
 }
